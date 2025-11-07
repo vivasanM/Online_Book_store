@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Online Bookstore & Transaction Demo</title>
+	<!-- Load Tailwind CSS -->
+	<script src="https://cdn.tailwindcss.com"></script>
+
+	<link rel="stylesheet" href="styles.css">
+
+</head>
+
+<body class="bg-gray-50 min-h-screen">
+
+	<!-- Application Root -->
+	<div id="app" class="flex flex-col min-h-screen">
+
+		<!-- Header/Navbar -->
+		<header id="header-container"></header>
+
+		<!-- Main Content -->
+		<main id="content-container" class="flex-grow p-4 md:p-8"></main>
+
+		<!-- Modal Container (For alerts and confirmations) -->
+		<div id="modal-container"
+			class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+			<div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md transform transition-all duration-300 scale-95 opacity-0"
+				id="modal-content">
+				<!-- Modal content will be inserted here -->
+			</div>
+		</div>
+
+		<!-- Footer -->
+		<footer class="bg-gray-800 text-white p-4 text-center text-sm mt-auto">
+			<p>&copy; 2025 Online Bookstore </p>
+		</footer>
+	</div>
+	<script>
+
+		// --- GLOBAL STATE ---
+		let books = [];
+		let cartItems = {}; // { bookId: { quantity, priceAtTimeOfOrder, bookTitleSnapshot, bookId } }
+		let userOrders = [];
+		let loggedInUser = null; // { id: '...', email: '...' }
+		let currentPage = 'catalog'; // 'catalog', 'cart', 'login', 'signup', 'orders'
+		let currentBook = null;
+		let bookSearchTerm = '';
+
+		// --- LOCAL STORAGE KEY CONSTANTS ---
+		const LS_KEY_BOOKS = 'bookstore_catalog';
+		const LS_KEY_USERS = 'bookstore_users';
+		const LS_KEY_ORDERS = 'bookstore_orders';
+		const LS_KEY_CART = 'bookstore_cart_'; // Suffix with user ID
+		const LS_KEY_LOGGED_IN_USER = 'bookstore_logged_in_user';
+
+		// --- LOCAL STORAGE UTILITIES (Database Replacement) ---
+
+		/**
+		 * Safely gets parsed data from localStorage.
+		 */
+		function getLSData(key, defaultValue = {}) {
+			try {
+				const data = localStorage.getItem(key);
+				return data ? JSON.parse(data) : defaultValue;
+			} catch (e) {
+				console.error("Error parsing localStorage key:", key, e);
+				return defaultValue;
+			}
+		}
+
+		/**
+		 * Safely sets data to localStorage.
+		 */
+		function setLSData(key, data) {
+			try {
+				localStorage.setItem(key, JSON.stringify(data));
+			} catch (e) {
+				console.error("Error setting localStorage key:", key, e);
+			}
+		}
+
+		/**
+		 * Provides dummy data for initial catalog setup.
+		 * */
+		function getInitialDemoBooks() {
+			const demoBooks = [
+				{ id: '1', title: "The Martian", author: "Andy Weir", price: 500, genre: "Sci-Fi", imageUrl: `https://placehold.co/150x200/ed2c36/ffffff?text=Martian` },
+				{ id: '2', title: "Project Hail Mary", author: "Andy Weir", price: 399, genre: "Sci-Fi", imageUrl: `https://placehold.co/150x200/00a6e3/ffffff?text=Hail+Mary` },
+				{ id: '3', title: "Dune", author: "Frank Herbert", price: 750, genre: "Sci-Fi", imageUrl: `https://placehold.co/150x200/333333/ffffff?text=Dune` },
+				{ id: '4', title: "Where the Crawdads Sing", author: "Delia Owens", price: 290, genre: "Fiction", imageUrl: `https://placehold.co/150x200/ed2c36/ffffff?text=Crawdads` },
+				{ id: '5', title: "Sapiens: A Brief History", author: "Yuval Noah Harari", price: 699, genre: "Non-Fiction", imageUrl: `https://placehold.co/150x200/6b7280/ffffff?text=Sapiens` },
+				{ id: '6', title: "The Midnight Library", author: "Matt Haig", price: 587, genre: "Fantasy", imageUrl: `https://placehold.co/150x200/f59e0b/ffffff?text=Midnight+Library` },
+				{ id: '7', title: "1984", author: "George Orwell", price: 499, genre: "Dystopian", imageUrl: `https://placehold.co/150x200/4f46e5/ffffff?text=1984` },
+				{ id: '8', title: "12 Years: My Messed-up Love Story", author: "Chetan Bhagat", price: 299, genre: "Romance", imageUrl: "https://images.unsplash.com/photo-1566915682737-3e97a7eed93b?w=600&auto=format&fit=crop&q=60" },
+				{ id: '9', title: "The Secret of Secrets", author: "Dan Brown", price: 399, genre: "Mystery Thriller", imageUrl: "https://images.unsplash.com/photo-1604778367959-4ca516d798a7?q=80&w=758&auto=format&fit=crop" },
+				{ id: '10', title: "Wiley's J.D. Lee Concise Inorganic Chemistry for JEE", author: "Sudarshan Guha", price: 549, genre: "Educational", imageUrl: "https://media.istockphoto.com/id/1000158336/photo/chemistry-education-concept-open-books-with-text-chemistry-and-formulas-and-textbooks-flasks.webp" },
+				{ id: '11', title: "Oswaal One for All Olympiads Previous Year Solved Papers (Book 1)", author: "Oswaal Editorial Board", price: 299, genre: "Exam Preparation", imageUrl: "https://plus.unsplash.com/premium_photo-1731951687922-1bb9d7722a49?w=600&auto=format&fit=crop&q=60" },
+				{ id: '12', title: "Oswaal One for All Olympiads Previous Year Solved Papers (Book 2)", author: "Oswaal Editorial Board", price: 299, genre: "Exam Preparation", imageUrl: "https://plus.unsplash.com/premium_photo-1683141243517-5730698ff67f?w=600&auto=format&fit=crop&q=60" },
+				{ id: '13', title: "The Midnight Library", author: "Matt Haig", price: 299, genre: "Fiction", imageUrl: "https://images.unsplash.com/photo-1521123845560-14093637aa7d?w=600&auto=format&fit=crop&q=60" },
+				{ id: '14', title: "Atomic Habits", author: "James Clear", price: 399, genre: "Self-help", imageUrl: "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=600&auto=format&fit=crop&q=60" },
+				{ id: '15', title: "It Ends with Us", author: "Colleen Hoover", price: 349, genre: "Romance Drama", imageUrl: "https://images.unsplash.com/photo-1516979187457-637abb4f9353?w=600&auto=format&fit=crop&q=60" },
+				{ id: '16', title: "The Alchemist", author: "Paulo Coelho", price: 299, genre: "Philosophical Fiction", imageUrl: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=600&auto=format&fit=crop&q=60" },
+				{ id: '17', title: "Rich Dad Poor Dad", author: "Robert T. Kiyosaki", price: 379, genre: "Finance", imageUrl: "https://images.unsplash.com/photo-1553729459-efe14ef6055d?w=600&auto=format&fit=crop&q=60" },
+				{ id: '18', title: "The Psychology of Money", author: "Morgan Housel", price: 399, genre: "Finance", imageUrl: "https://images.unsplash.com/photo-1592496431122-2349e0fbc666?ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8cHN5Y29sb2d5JTIwb2YlMjBtb25leXxlbnwwfHwwfHx8MA%3D%3D&auto=format&fit=crop&q=60&w=600" },
+				{ id: '19', title: "Ikigai", author: "Héctor García", price: 299, genre: "Self-help", imageUrl: "https://images.unsplash.com/photo-1544717305-996b815c338c?w=600&auto=format&fit=crop&q=60" },
+				{ id: '20', title: "The power", author: "James", price: 349, genre: "sci-fic", imageUrl: "https://images.unsplash.com/photo-1524995997946-a1c2e315a42f?w=600&auto=format&fit=crop&q=60" },
+				{ id: '21', title: "Rich Dad Poor Dad", author: "Robert T. Kiyosaki", price: 349, genre: "Finance", imageUrl: "https://images.unsplash.com/photo-1553729459-efe14ef6055d?w=600&auto=format&fit=crop&q=60" },
+				{ id: '22', title: "The Subtle Art of Not Giving a F*ck", author: "Mark Manson", price: 520, genre: "Self-Help", imageUrl: "https://images.unsplash.com/photo-1507842217343-583bb7270b66?w=600&auto=format&fit=crop&q=60" },
+				{ id: '23', title: "Deep Work", author: "Cal Newport", price: 640, genre: "Productivity", imageUrl: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=60" },
+				{ id: '24', title: "Sapiens: A Brief History of Humankind", author: "Yuval Noah Harari", price: 899, genre: "History", imageUrl: "https://images.unsplash.com/photo-1512820790803-83ca734da794?w=600&auto=format&fit=crop&q=60" },
+				{ id: '25', title: "Ikigai: The Japanese Secret to a Long and Happy Life", author: "Héctor García & Francesc Miralles", price: 440, genre: "Self-Help", imageUrl: "https://images.unsplash.com/photo-1544717305-996b815c338c?w=600&auto=format&fit=crop&q=60" },
+				{ id: '26', title: "Can’t Hurt Me", author: "David Goggins", price: 699, genre: "Biography", imageUrl: "https://images.unsplash.com/photo-1516979187457-637abb4f9353?w=600&auto=format&fit=crop&q=60" },
+				{ id: '27', title: "The Alchemist", author: "Paulo Coelho", price: 379, genre: "Philosophy", imageUrl: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=600&auto=format&fit=crop&q=60" },
+				{ id: '28', title: "Educated", author: "Tara Westover", price: 450, genre: "Memoir", imageUrl: "https://images.unsplash.com/photo-1519681393784-d120267933ba?w=600&auto=format&fit=crop&q=60" },
+				{ id: '29', title: "The Midnight Library", author: "Matt Haig", price: 520, genre: "Fiction", imageUrl: "https://images.unsplash.com/photo-1521123845560-14093637aa7d?w=600&auto=format&fit=crop&q=60" },
+				{ id: '30', title: "Atomic Habits", author: "James Clear", price: 525, genre: "Self-Help", imageUrl: "https://images.unsplash.com/photo-1528207776546-365bb710ee93?w=600&auto=format&fit=crop&q=60" }
+
+
+			];
+
+
+
+			demoBooks.forEach(book => {
+				// Convert all prices from USD → INR
+
+
+				// Add Unsplash image if missing
+				if (!book.imageUrl) {
+					book.imageUrl = `https://source.unsplash.com/150x200/?book,${encodeURIComponent(book.title)}`;
+				}
+			});
+
+			return demoBooks;
+		}
+
+
+		function loadInitialState() {
+			//localStorage.removeItem(LS_KEY_BOOKS);
+			// 1. Load Catalog
+			// let storedBooks = getLSData(LS_KEY_BOOKS, null);
+			// if (!storedBooks || Object.keys(storedBooks).length === 0) {
+			//     const demoBooks = getInitialDemoBooks();
+			//     storedBooks = demoBooks.reduce((acc, book) => {
+			//         acc[book.id] = book;
+			//         return acc;
+			//     }, {});
+			//     setLSData(LS_KEY_BOOKS, storedBooks);
+			// }
+
+			// // Convert to array for rendering purposes
+			// books = Object.values(storedBooks).sort((a, b) => a.title.localeCompare(b.title));
+
+
+			const bookPromise = new Promise((resolve, reject) => {
+				fetchApi('/books', 'GET').then((response) => {
+					books = response;
+					resolve();
+				}).catch((error) => {
+					console.error('Error fetching books from API:', error);
+					books = [];
+					reject(error);
+				});
+			});
+
+
+
+			// 2. Load Auth State
+			//loggedInUser = getLSData(LS_KEY_LOGGED_IN_USER, null);
+			const [userid, email, isLoggedIn, role] = [sessionStorage.getItem('userid'), sessionStorage.getItem('email'),
+			sessionStorage.getItem('isLoggedIn'), sessionStorage.getItem('role')];
+
+
+			if (email && isLoggedIn) {
+				loggedInUser = { userid, email, role };
+			}
+
+			// 3. Load Cart and Orders for the logged-in user
+			// if (loggedInUser) {
+			// 	cartItems = getLSData(LS_KEY_CART + loggedInUser.id, {});
+			// 	const allOrders = getLSData(LS_KEY_ORDERS, {});
+			// 	userOrders = (allOrders[loggedInUser.id] || []).sort((a, b) => b.orderDate - a.orderDate);
+			// } else {
+			// 	cartItems = {};
+			// 	userOrders = [];
+			// }
+			Promise.all([bookPromise]).then(() => {
+				renderUI();
+			})
+
+
+		}
+
+
+		/**
+		 * Saves the cart items to local storage for the current user.
+		 */
+		function saveCart() {
+			if (loggedInUser) {
+				setLSData(LS_KEY_CART + loggedInUser.id, cartItems);
+			}
+		}
+
+		/**
+		 * Saves a new order to local storage for the current user.
+		 */
+		function saveOrder(newOrder) {
+			if (loggedInUser) {
+				const allOrders = getLSData(LS_KEY_ORDERS, {});
+				const userSpecificOrders = allOrders[loggedInUser.id] || [];
+				userSpecificOrders.unshift(newOrder); // Add to the start
+				allOrders[loggedInUser.id] = userSpecificOrders;
+				setLSData(LS_KEY_ORDERS, allOrders);
+
+				// Update in-memory state
+				userOrders = userSpecificOrders;
+			}
+		}
+
+		// --- AUTHENTICATION FUNCTIONS (Local Storage) ---
+
+		/**
+		 * Handles user login with email and password.
+		 */
+		function handleLogin(email, password) {
+
+			fetchApi('/users/login', 'POST', { email, password }).then((response) => {
+				sessionStorage.setItem('userid', response.id);
+				sessionStorage.setItem('email', response.email);
+				sessionStorage.setItem('isLoggedIn', true);
+				sessionStorage.setItem('role', response.role);
+				loggedInUser = { userid: response.id, email: response.email, role: response.role };
+				loadInitialState();
+				showModal('Success', `Welcome back, ${response.email}!`);
+				navigateTo('catalog');
+			}).catch((error) => {
+				showModal('Login Failed', 'Invalid email or password.');
+			});
+
+
+		}
+
+		/**
+		 * Handles user signup with email and password.
+		 */
+		function handleSignup(name, email, password, role) {
+
+			if (password.length < 6) {
+				showModal('Signup Failed', 'Password must be at least 6 characters long.');
+				return;
+			}
+
+			fetchApi('/users/', 'POST', { name, email, password, role }).then((response) => {
+				loggedInUser = { id: response.userid, email: response.email };
+				loadInitialState();
+				showModal('Success', 'Account created successfully!');
+				navigateTo('catalog');
+			}).catch((error) => {
+				console.error('Error during signup:', error);
+				if (error && error.status == '409') {
+					showModal('Signup Failed', 'This email is already in use. Please log in.');
+				}
+			});
+		}
+
+		/**
+		 * Signs the user out.
+		 */
+		function handleLogout() {
+			loggedInUser = null;
+			sessionStorage.clear();
+			cartItems = {};
+			userOrders = [];
+			showModal('Success', 'You have been logged out.');
+			navigateTo('catalog');
+			renderUI();
+		}
+
+		/**
+		 * Handles add book.
+		 */
+		function handleAddBook(title, author, price, imagelink, quantity) {
+
+
+			if (!title || !author || !price || !imagelink || !quantity) {
+				showModal('Add Book Failed', 'Enter all mandatory details');
+				return;
+			}
+
+			fetchApi('/books/', 'POST', { title, author, price, quantity, imagelink }).then((response) => {
+				showModal('Success', 'Book added successfully!');
+				navigateTo('catalog');
+			}).catch((error) => {
+				console.error('Error during book creation:', error);
+				if (error && error.status == '409') {
+					showModal('Add Book Failed', 'This book is already available. Please update it.');
+				}
+			});
+		}
+
+		/**
+	 * Handles update book.
+	 */
+		function handleUpdateBook(title, author, price, imagelink, quantity) {
+
+
+			if (!title || !author || !price || !imagelink || !quantity) {
+				showModal('Update Book Failed', 'Enter all mandatory details');
+				return;
+			}
+
+			const updateUrl = `/books/${currentBook.book_id}`;
+			fetchApi(updateUrl, 'PATCH', { title, author, price, quantity, imagelink }).then((response) => {
+				showModal('Success', 'Book updated successfully!');
+				navigateTo('catalog');
+			}).catch((error) => {
+				console.error('Error during book updation:', error);
+				if (error && error.status == '409') {
+					showModal('Update Book Failed', 'Failed to update a book.');
+				}
+			});
+		}
+
+		function handleEditIconClick(book) {
+			currentBook = book;
+			currentPage = 'updatebook'
+			renderMainContent();
+		}
+
+
+		// --- CART/ORDER FUNCTIONS (Local Storage) ---
+
+		/**
+		 * Adds a book to the user's cart.
+		 */
+		function addToCart(bookId) {
+			if (!loggedInUser) {
+				showModal('Login Required', 'Please log in to add items to your cart.');
+				return;
+			}
+
+			const book = books.find(b => b.book_id === bookId);
+			if (!book) {
+				showModal('Error', 'Book not found.');
+				return;
+			}
+
+			const cartItem = cartItems[bookId] || {
+				quantity: 0,
+				priceAtTimeOfOrder: parseFloat(book.price),
+				bookTitleSnapshot: book.title,
+				bookId: book.book_id
+			};
+
+			cartItem.quantity += 1;
+			cartItems[bookId] = cartItem;
+
+			saveCart();
+			showModal('Added to Cart', `${book.title} added to your cart. Total quantity: ${cartItem.quantity}`);
+			renderHeader(); // Update cart count
+			if (currentPage === 'cart') renderMainContent();
+		}
+
+		/**
+		 * Updates the quantity of an item in the cart.
+		 */
+		function updateCartItemQuantity(bookId, newQuantity) {
+			if (!loggedInUser) return;
+
+			if (newQuantity <= 0) {
+				delete cartItems[bookId];
+			} else if (cartItems[bookId]) {
+				cartItems[bookId].quantity = newQuantity;
+			}
+
+			saveCart();
+			renderHeader();
+			if (currentPage === 'cart') renderMainContent();
+		}
+
+		/**
+		 * Clears all items from the cart.
+		 */
+		function clearCart() {
+			if (!loggedInUser) return;
+			cartItems = {};
+			saveCart();
+			showModal('Cart Cleared', 'Your shopping cart has been emptied.');
+			renderHeader();
+			if (currentPage === 'cart') renderMainContent();
+		}
+
+		/**
+		 * Processes the current cart as a new order.
+		 */
+		function placeOrder() {
+			if (!loggedInUser) return;
+
+			const currentCartArray = Object.values(cartItems);
+			if (currentCartArray.length === 0) {
+				showModal('Cart is Empty', 'Your cart is empty. Please add items before placing an order.');
+				return;
+			}
+
+			const totalAmount = currentCartArray.reduce((sum, item) => sum + (item.quantity * item.priceAtTimeOfOrder), 0);
+
+			fetchApi('/orders', 'POST', { userId: loggedInUser.userid, items: currentCartArray.map((item => ({ bookId: item.bookId, quantity: item.quantity, price: item.priceAtTimeOfOrder }))) }).then(response => {
+
+
+
+				cartItems = {};
+				saveCart();
+
+				showModal('Order Placed!', `Your order has been placed successfully for a total of ₹${totalAmount.toFixed(2)}.`);
+				navigateTo('orders');
+			}).catch(error => {
+				if (error.status === 400) {
+					const parsed = JSON.parse(error.message);
+
+					if (parsed.error === 'Insufficient stocks for books') {
+						// Construct modal body message directly
+						const modalBody = parsed.data
+							.map((data) => {
+								const book = books.find((b) => b.book_id === data.book_id);
+								if (!book) return null; // skip if book not found
+								return `<li> <b>${book.title}</b> - Requested: ${data.requested}, Available: ${data.quantity}</li>`;
+
+							})
+							.filter(Boolean) // remove nulls
+							.join('');
+
+						showModal(
+							'Failed - Some items cannot be ordered',
+							`<div> The following books have insufficient stock: </div>
+							
+							<ul class="mt-5 mb-5"> ${modalBody} </ul>
+							
+							<div class="mb-3">Please adjust the quantities before placing the order.</div>`, true
+						);
+					}
+
+				} else {
+					showModal('Failed!', `Failed to place orders, Try again`);
+
+				}
+			});
+
+
+
+
+		}
+
+		// --- UI UTILITIES ---
+
+		/**
+		 * Shows a custom modal with a title and message.
+		 */
+		function showModal(title, message, renderAsHtml = false) {
+			const modalContainer = document.getElementById('modal-container');
+			const modalContent = document.getElementById('modal-content');
+
+			modalContent.innerHTML = `
+                <h3 class="text-xl font-bold mb-3">${title}</h3>
+								${renderAsHtml ? message : `<p class="text-gray-700 mb-6">${message}</p>`}
+                <div class="flex justify-end">
+                    <button id="modal-close-btn" class="btn btn-primary">Close</button>
+                </div>
+            `;
+
+			modalContainer.classList.remove('hidden');
+			setTimeout(() => {
+				modalContent.classList.remove('scale-95', 'opacity-0');
+				modalContent.classList.add('scale-100', 'opacity-100');
+			}, 10);
+
+			document.getElementById('modal-close-btn').onclick = hideModal;
+			modalContainer.onclick = (e) => {
+				if (e.target.id === 'modal-container') {
+					hideModal();
+				}
+			};
+		}
+
+		/**
+		 * Hides the custom modal.
+		 */
+		function hideModal() {
+			const modalContainer = document.getElementById('modal-container');
+			const modalContent = document.getElementById('modal-content');
+
+			modalContent.classList.remove('scale-100', 'opacity-100');
+			modalContent.classList.add('scale-95', 'opacity-0');
+
+			setTimeout(() => {
+				modalContainer.classList.add('hidden');
+				modalContent.innerHTML = '';
+			}, 300);
+		}
+
+
+		/**
+		 * Navigates to a new page/view and updates the content.
+		 */
+		function navigateTo(page) {
+			currentPage = page;
+			renderUI();
+		}
+
+		/**
+		 * Renders the entire UI (Header and Main Content).
+		 */
+		function renderUI() {
+			renderHeader();
+			renderMainContent();
+		}
+
+		// --- RENDER FUNCTIONS ---
+
+		/**
+		 * Renders the header/navigation bar.
+		 */
+		function renderHeader() {
+			const headerContainer = document.getElementById('header-container');
+			const isLoggedIn = !!loggedInUser;
+
+			const cartCount = Object.values(cartItems).reduce((sum, item) => sum + item.quantity, 0);
+
+			headerContainer.innerHTML = `
+    <nav class="bg-white shadow-md sticky top-0 z-40">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex justify-between items-center h-16 space-x-4">
+
+          <!-- Logo -->
+          <div class="flex-shrink-0">
+            <a href="#" onclick="navigateTo('catalog')" class="text-2xl font-extrabold link-red">Bookstore Central</a>
+          </div>
+
+          <!-- Search Bar (Visible only if logged in) -->
+          ${isLoggedIn
+					? `
+          <div class="relative flex-1 hidden md:block max-w-md">
+            <input
+              id="book-search"
+              type="text"
+              placeholder="Search books by title or author..."
+              class="search-input w-full border border-gray-300 rounded-full py-2 px-4 pl-10 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none"
+            />
+            <svg class="absolute left-3 top-2.5 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none"
+              viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M21 21l-4.35-4.35M10 18a8 8 0 100-16 8 8 0 000 16z" />
+            </svg>
+          </div>`
+					: ''
+				}
+
+          <!-- Desktop Navigation -->
+          <div class="hidden md:flex space-x-4 items-center">
+            ${loggedInUser && loggedInUser.role === 'Admin'
+					? `
+              <a href="#" onclick="navigateTo('addbook')" class="py-2 px-3 text-sm font-medium ${currentPage === 'addbook'
+						? 'link-red border-b-2 border-red'
+						: 'text-gray-700 hover:link-red'
+					}">Add Book</a>
+              <a href="#" onclick="navigateTo('analytics')" class="py-2 px-3 text-sm font-medium ${currentPage === 'analytics'
+						? 'link-red border-b-2 border-red'
+						: 'text-gray-700 hover:link-red'
+					}">Analytics</a>`
+					: ''
+				}
+            <a href="#" onclick="navigateTo('catalog')" class="py-2 px-3 text-sm font-medium ${currentPage === 'catalog'
+					? 'link-red border-b-2 border-red'
+					: 'text-gray-700 hover:link-red'
+				}">Catalog</a>
+            <a href="#" onclick="navigateTo('cart')" class="relative py-2 px-3 text-sm font-medium ${currentPage === 'cart'
+					? 'link-red border-b-2 border-red'
+					: 'text-gray-700 hover:link-red'
+				}">
+              Cart
+              <span class="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/2 -translate-y-1/2 bg-blue rounded-full">${cartCount}</span>
+            </a>
+            ${isLoggedIn
+					? `
+              <a href="#" onclick="navigateTo('orders')" class="py-2 px-3 text-sm font-medium ${currentPage === 'orders'
+						? 'link-red border-b-2 border-red'
+						: 'text-gray-700 hover:link-red'
+					}">My Orders</a>
+              <button onclick="handleLogout()" class="btn btn-primary text-sm h-10 ml-4">Logout (${loggedInUser.email})</button>`
+					: `
+              <button onclick="navigateTo('login')" class="btn btn-primary text-sm h-10 ml-4">Login</button>
+              <button onclick="navigateTo('signup')" class="btn btn-secondary text-sm h-10">Sign Up</button>`
+				}
+          </div>
+
+          <!-- Mobile Menu Button -->
+          <div class="flex md:hidden items-center">
+            <button id="mobile-menu-toggle" type="button"
+              class="inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red"
+              aria-controls="mobile-menu" aria-expanded="false">
+              <svg id="menu-icon" class="h-6 w-6 transition-transform duration-300" xmlns="http://www.w3.org/2000/svg"
+                fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+  `;
+
+			// headerContainer.innerHTML = `
+			//     <nav class="bg-white shadow-md sticky top-0 z-40">
+			//         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+			//             <div class="flex justify-between items-center h-16">
+
+			//                 <!-- Logo/Title -->
+			//                 <div class="flex-shrink-0">
+			//                     <a href="#" onclick="navigateTo('catalog')" class="text-2xl font-extrabold link-red">Bookstore Central</a>
+			//                 </div>
+
+			//                 <!-- Desktop Nav Links -->
+			//                 <div class="hidden md:flex space-x-4 items-center">
+			// 												${loggedInUser && loggedInUser.role === 'Admin' ? `<a href="#" onclick="navigateTo('addbook')" class="py-2 px-3 text-sm font-medium ${currentPage === 'addbook' ? 'link-red border-b-2 border-red' : 'text-gray-700 hover:link-red'}">Add Book</a>
+			// 												 <a href="#" onclick="navigateTo('analytics')" class="py-2 px-3 text-sm font-medium ${currentPage === 'analytics' ? 'link-red border-b-2 border-red' : 'text-gray-700 hover:link-red'}">Analytics</a>` : ''}
+			//                     <a href="#" onclick="navigateTo('catalog')" class="py-2 px-3 text-sm font-medium ${currentPage === 'catalog' ? 'link-red border-b-2 border-red' : 'text-gray-700 hover:link-red'}">Catalog</a>
+			//                     <a href="#" onclick="navigateTo('cart')" class="relative py-2 px-3 text-sm font-medium ${currentPage === 'cart' ? 'link-red border-b-2 border-red' : 'text-gray-700 hover:link-red'}">
+			//                         Cart
+			//                         <span class="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/2 -translate-y-1/2 bg-blue rounded-full">${cartCount}</span>
+			//                     </a>
+			//                     ${isLoggedIn ? `
+			//                         <a href="#" onclick="navigateTo('orders')" class="py-2 px-3 text-sm font-medium ${currentPage === 'orders' ? 'link-red border-b-2 border-red' : 'text-gray-700 hover:link-red'}">My Orders</a>
+			//                         <button onclick="handleLogout()" class="btn btn-primary text-sm h-10 ml-4">Logout (${loggedInUser.email})</button>
+			//                     ` : `
+			//                         <button onclick="navigateTo('login')" class="btn btn-primary text-sm h-10 ml-4">Login</button>
+			//                         <button onclick="navigateTo('signup')" class="btn btn-secondary text-sm h-10">Sign Up</button>
+			//                     `}
+			//                 </div>
+
+			//                 <!-- Mobile Menu Button -->
+			//                 <div class="flex md:hidden items-center">
+			//                     <button id="mobile-menu-toggle" type="button" class="inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red" aria-controls="mobile-menu" aria-expanded="false">
+			//                         <svg id="menu-icon" class="h-6 w-6 transition-transform duration-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+			//                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+			//                         </svg>
+			//                     </button>
+			//                 </div>
+			//             </div>
+			//         </div>
+
+			//         <!-- Mobile Menu (Hidden by default) -->
+			//         <div class="md:hidden hidden pb-3 space-y-1 sm:px-3" id="mobile-menu">
+			//             <a href="#" onclick="navigateTo('catalog'); toggleMobileMenu()" class="block px-3 py-2 rounded-md text-base font-medium ${currentPage === 'catalog' ? 'link-red bg-red bg-opacity-10' : 'text-gray-700 hover:bg-gray-50'}">Catalog</a>
+			//             <a href="#" onclick="navigateTo('cart'); toggleMobileMenu()" class="block px-3 py-2 rounded-md text-base font-medium ${currentPage === 'cart' ? 'link-red bg-red bg-opacity-10' : 'text-gray-700 hover:bg-gray-50'}">
+			//                 Cart (${cartCount})
+			//             </a>
+			//             ${isLoggedIn ? `
+			//                 <a href="#" onclick="navigateTo('orders'); toggleMobileMenu()" class="block px-3 py-2 rounded-md text-base font-medium ${currentPage === 'orders' ? 'link-red bg-red bg-opacity-10' : 'text-gray-700 hover:bg-gray-50'}">My Orders</a>
+			//                 <button onclick="handleLogout(); toggleMobileMenu()" class="w-full text-left px-3 py-2 rounded-md text-base font-medium text-white bg-red hover:bg-d1272f">Logout (${loggedInUser.email})</button>
+			//             ` : `
+			//                 <button onclick="navigateTo('login'); toggleMobileMenu()" class="w-full text-left px-3 py-2 rounded-md text-base font-medium text-white bg-red hover:bg-d1272f">Login</button>
+			//                 <button onclick="navigateTo('signup'); toggleMobileMenu()" class="w-full text-left px-3 py-2 rounded-md text-base font-medium text-white bg-blue hover:bg-008fcc">Sign Up</button>
+			//             `}
+			//         </div>
+			//     </nav>
+			// `;
+
+			// Attach mobile menu toggle logic
+			document.getElementById('mobile-menu-toggle').onclick = toggleMobileMenu;
+
+
+			if (isLoggedIn) {
+				const searchInput = document.getElementById('book-search');
+				if (searchInput) {
+					// Debounce function
+					function debounce(func, delay) {
+						let timeoutId;
+						return function (...args) {
+							clearTimeout(timeoutId);
+							timeoutId = setTimeout(() => {
+								func.apply(this, args);
+							}, delay);
+						};
+					}
+
+					// The function to call after debouncing
+					const handleSearch = async (e) => {
+						const query = e.target.value.trim().toLowerCase();
+						bookSearchTerm = query;
+						currentPage = 'catalog';
+						renderMainContent();
+					};
+
+					// Attach debounced event listener
+					searchInput.addEventListener('input', debounce(handleSearch, 300)); // 300ms delay
+				}
+			}
+		}
+			/**
+			 * Toggles the mobile menu visibility.
+			 */
+			function toggleMobileMenu() {
+				const menu = document.getElementById('mobile-menu');
+				const header = document.getElementById('header-container').querySelector('nav');
+
+				if (menu.classList.contains('hidden')) {
+					menu.classList.remove('hidden');
+					header.classList.add('mobile-menu-open');
+				} else {
+					menu.classList.add('hidden');
+					header.classList.remove('mobile-menu-open');
+				}
+			}
+
+			function getContentLoader() {
+				return `<div class='loader-container'><div class="loader"></div></div>`
+			}
+			/**
+			 * Renders the main content based on the current page.
+			 */
+			async function renderMainContent() {
+				const contentContainer = document.getElementById('content-container');
+				const isLoggedIn = !!loggedInUser;
+				contentContainer.innerHTML = getContentLoader();
+
+				let contentHTML = '';
+
+				switch (currentPage) {
+					case 'catalog':
+						contentHTML = await renderCatalogPage(isLoggedIn);
+						break;
+					case 'cart':
+						contentHTML = renderCartPage(isLoggedIn);
+						break;
+					case 'login':
+						contentHTML = renderAuthForm('login');
+						break;
+					case 'signup':
+						contentHTML = renderAuthForm('signup');
+						break;
+					case 'orders':
+						contentHTML = await renderOrdersPage(isLoggedIn);
+						break;
+					case 'analytics':
+						contentHTML = await renderAnalytics(isLoggedIn);
+						break;
+					case 'addbook':
+						contentHTML = await renderAddBook(isLoggedIn);
+						break;
+					case 'updatebook':
+						contentHTML = await renderUpdateBook(isLoggedIn);
+						break;
+					default:
+						contentHTML = `<h1 class="text-3xl font-bold">404 Page Not Found</h1>`;
+				}
+
+				contentContainer.innerHTML = contentHTML;
+
+				// Attach event listeners after content is rendered
+				if (currentPage === 'login') {
+					document.getElementById('login-form')?.addEventListener('submit', (e) => {
+						e.preventDefault();
+						const email = e.target.email.value;
+						const password = e.target.password.value;
+						handleLogin(email, password);
+					});
+				} else if (currentPage === 'signup') {
+					document.getElementById('signup-form')?.addEventListener('submit', (e) => {
+						e.preventDefault();
+						const name = e.target.name.value;
+						const email = e.target.email.value;
+						const password = e.target.password.value;
+						const role = e.target.role.value;
+						handleSignup(name, email, password, role);
+					});
+				} else if (currentPage === 'cart' && isLoggedIn) {
+					document.getElementById('place-order-btn')?.addEventListener('click', placeOrder);
+					document.getElementById('clear-cart-btn')?.addEventListener('click', clearCart);
+				} else if (currentPage === 'addbook' && isLoggedIn) {
+					document.getElementById('add-book-form')?.addEventListener('submit', (e) => {
+						e.preventDefault();
+						const bookname = e.target.book_name.value;
+						const author = e.target.author.value;
+						const price = e.target.price.value;
+						const quantity = e.target.quantity.value;
+						const imagelink = e.target.image_link.value;
+						handleAddBook(bookname, author, price, imagelink, quantity);
+					});
+				} else if (currentPage === 'updatebook' && isLoggedIn) {
+					document.getElementById('update-book-form')?.addEventListener('submit', (e) => {
+						e.preventDefault();
+						const bookname = e.target.book_name.value;
+						const author = e.target.author.value;
+						const price = e.target.price.value;
+						const quantity = e.target.quantity.value;
+						const imagelink = e.target.image_link.value;
+						handleUpdateBook(bookname, author, price, imagelink, quantity);
+					});
+				}
+			}
+
+			/**
+			 * Renders the Book Catalog page.
+			 */
+			async function renderCatalogPage(isLoggedIn) {
+				if (!isLoggedIn) {
+					return `<div class="max-w-md mx-auto p-8 bg-white rounded-xl shadow-xl text-center">
+                            <h1 class="text-3xl font-bold mb-4 link-red">Catalogue</h1>
+                            <p class="text-gray-600 mb-6">You must be logged in to view the books catalogue.</p>
+                            <button onclick="navigateTo('login')" class="btn btn-primary w-full">Go to Login</button>
+                        </div>`;
+				}
+
+
+				await new Promise((resolve, reject) => {
+					fetchApi('/books', 'GET').then((response) => {
+						books = response;
+						resolve();
+					}).catch((error) => {
+						console.error('Error fetching books from API:', error);
+						books = [];
+						reject(error);
+					});
+				});
+
+				const filteredBooks = books.filter(book => {
+					const searchTerm = bookSearchTerm.toLowerCase();
+					return (
+						book.title.toLowerCase().includes(searchTerm) ||
+						book.author.toLowerCase().includes(searchTerm)
+					);
+				});
+
+
+				return `
+	<div class="max-w-7xl mx-auto">
+		<h1 class="text-4xl font-extrabold mb-8 text-center text-gray-800">Book Catalog</h1>
+
+		<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+			${filteredBooks.length === 0 ? `
+				<p class="col-span-full text-center text-gray-500 py-10">No books available in the catalog.</p>
+			` : filteredBooks.map(book => `
+				<div class="relative bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden flex flex-col">
+
+					<!-- Edit Icon -->
+					
+					${loggedInUser && loggedInUser.role === 'Admin' ? `<button
+							onclick='handleEditIconClick(${JSON.stringify(book)})'
+							class="absolute top-3 right-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full w-8 h-8 flex items-center justify-center shadow-sm transition-transform hover:scale-110"
+							title="Update Book">
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 20h9" />
+							<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+						</svg>
+						</button>`: ''}
+						
+					
+
+					<!-- Book Image/Placeholder -->
+					<div class="h-48 bg-gray-200 flex items-center justify-center p-4">
+						<img src="${book.image_link}" 
+							onerror="this.onerror=null;this.src='https://placehold.co/150x200/cccccc/333333?text=Book+Cover';" 
+							alt="${book.title} Cover" 
+							class="object-cover h-full w-auto rounded-lg shadow-md">
+					</div>
+					
+					<!-- Book Info -->
+					<div class="p-5 flex-grow flex flex-col">
+						<h2 class="text-xl font-bold mb-1">${book.title}</h2>
+						<p class="text-sm text-gray-500 mb-3">by ${book.author}</p>
+						<p class="text-2xl font-extrabold link-red mt-auto">₹${book.price.toLocaleString()}</p>
+
+						${book.stock_quantity === 0
+						? `<div class="text-red-600 font-semibold mt-4 text-center">Out of stock</div>`
+						: `<button onclick="addToCart(${book.book_id})" 
+								class="btn btn-secondary mt-4 w-full text-sm">
+								<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+										d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0
+										a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z">
+									</path>
+								</svg>
+								Add to Cart
+							</button>`}
+					</div>
+				</div>
+			`).join('')}
+		</div>
+	</div>
+`;
+
+
+
+
+			}
+
+			/**
+			 * Renders the Cart page.
+			 */
+			function renderCartPage(isLoggedIn) {
+				if (!isLoggedIn) {
+					return `<div class="max-w-md mx-auto p-8 bg-white rounded-xl shadow-xl text-center">
+                            <h1 class="text-3xl font-bold mb-4 link-red">Shopping Cart</h1>
+                            <p class="text-gray-600 mb-6">You must be logged in to view and manage your shopping cart.</p>
+                            <button onclick="navigateTo('login')" class="btn btn-primary w-full">Go to Login</button>
+                        </div>`;
+				}
+
+				const currentCartArray = Object.values(cartItems);
+				const subtotal = currentCartArray.reduce((sum, item) => sum + (item.quantity * item.priceAtTimeOfOrder), 0);
+
+				return `
+                <div class="max-w-3xl mx-auto">
+                    <h1 class="text-4xl font-extrabold mb-8 text-center text-gray-800">Shopping Cart</h1>
+                    
+                    ${currentCartArray.length === 0
+						? `<div class="p-10 text-center bg-white rounded-xl shadow-lg">
+                                <p class="text-2xl font-semibold text-gray-600">Your cart is empty.</p>
+                                <p class="text-gray-500 mt-2">Time to find some great reads!</p>
+                                <button onclick="navigateTo('catalog')" class="btn btn-secondary mt-6">Browse Books</button>
+                           </div>`
+						: `<div class="bg-white rounded-xl shadow-lg p-6 md:p-8">
+                                <!-- Cart Items List -->
+                                <div class="space-y-4 mb-8">
+                                    ${currentCartArray.map(item => `
+                                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 border-b last:border-b-0">
+                                            
+                                            <!-- Item Details -->
+                                            <div class="flex-grow mb-2 sm:mb-0">
+                                                <h3 class="text-lg font-semibold">${item.bookTitleSnapshot}</h3>
+                                                <p class="text-gray-600 text-sm">₹${item.priceAtTimeOfOrder.toFixed(2)} per item</p>
+                                            </div>
+
+                                            <!-- Controls and Total -->
+                                            <div class="flex items-center space-x-4">
+                                                <div class="flex items-center border border-gray-300 rounded-lg p-1">
+                                                    <button onclick="updateCartItemQuantity('${item.bookId}', ${item.quantity - 1})" class="px-2 text-xl font-bold text-gray-600 hover:link-red rounded-l-md" aria-label="Decrease quantity">-</button>
+                                                    <input type="number" min="1" value="${item.quantity}" onchange="updateCartItemQuantity('${item.bookId}', parseInt(this.value))" 
+                                                           class="w-12 text-center text-gray-700 font-medium border-x border-gray-300 focus:outline-none" style="border-radius: 0;">
+                                                    <button onclick="updateCartItemQuantity('${item.bookId}', ${item.quantity + 1})" class="px-2 text-xl font-bold text-gray-600 hover:link-red rounded-r-md" aria-label="Increase quantity">+</button>
+                                                </div>
+                                                
+                                                <p class="text-lg font-bold w-20 text-right">₹${(item.quantity * item.priceAtTimeOfOrder).toFixed(2)}</p>
+                                                
+                                                <button onclick="updateCartItemQuantity('${item.bookId}', 0)" class="text-gray-400 hover:text-red transition-colors" aria-label="Remove item">
+                                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+
+                                <!-- Summary and Checkout -->
+                                <div class="flex flex-col md:flex-row justify-between items-end border-t pt-6 mt-6">
+                                    <div class="flex space-x-4 mb-4 md:mb-0">
+                                        <button id="clear-cart-btn" class="btn bg-gray-200 text-gray-700 hover:bg-gray-300 shadow-none">Clear Cart</button>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="text-2xl font-semibold mb-3">Subtotal: <span class="link-red font-extrabold">₹${subtotal.toFixed(2)}</span></p>
+                                        <button id="place-order-btn" class="btn btn-primary w-full md:w-auto">
+                                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                            Place Order Now
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>`
+					}
+                </div>
+            `;
+			}
+
+			/**
+			 * Renders the Login or Signup form.
+			 */
+			function renderAuthForm(type) {
+				const isLogin = type === 'login';
+				const title = isLogin ? 'Login to Your Account' : 'Create a New Account';
+				const buttonText = isLogin ? 'Login' : 'Sign Up';
+				const switchText = isLogin ? 'Need an account? ' : 'Already have an account? ';
+				const switchAction = isLogin ? 'signup' : 'login';
+
+				return `
+                <div class="max-w-md mx-auto p-8 bg-white rounded-xl shadow-xl">
+                    <h1 class="text-3xl font-bold mb-6 text-center ${isLogin ? 'link-red' : 'text-blue'}">${title}</h1>
+                    
+                    <form id="${type}-form">
+                        ${!isLogin ? `<input type="text" name="name" placeholder="Full Name" required class="form-input" />` : ''}
+
+                        <input type="email" name="email" placeholder="Email Address (e.g., test@user.com)" required class="form-input" />
+                        <input type="password" name="password" placeholder="Password (min 6 chars)" required class="form-input" />
+                        
+												${!isLogin ? `<div class="mt-4 border rounded-lg px-4 py-3 bg-gray-50">
+        <label class="block text-gray-700 font-medium mb-2">Role</label>
+        <div class="flex items-center space-x-6">
+            <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="radio" name="role" value="User" required class="text-blue-600 focus:ring-blue-500">
+                <span class="text-gray-700">User</span>
+            </label>
+            <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="radio" name="role" value="Admin" required class="text-blue-600 focus:ring-blue-500">
+                <span class="text-gray-700">Admin</span>
+            </label>
+        </div>
+    </div>`: ''}
+                        <button type="submit" class="btn ${isLogin ? 'btn-primary' : 'btn-secondary'} w-full mt-4">
+                            ${buttonText}
+                        </button>
+                    </form>
+
+                    <p class="text-center text-gray-600 mt-6">
+                        ${switchText} 
+                        <a href="#" onclick="navigateTo('${switchAction}')" class="font-medium ${isLogin ? 'text-blue hover:text-cyan-700' : 'link-red hover:text-red-700'}">
+                            ${isLogin ? 'Sign Up' : 'Login'} here
+                        </a>
+                    </p>
+                    <p class="text-xs text-center text-gray-400 mt-3">
+                        <span class="font-bold">NOTE:</span> Use any email/password. Data is saved locally in your browser.
+                    </p>
+                </div>
+            `;
+			}
+
+			/**
+			 * Renders the User Orders page.
+			 */
+			async function renderOrdersPage(isLoggedIn) {
+				if (!isLoggedIn) {
+					return `<div class="max-w-md mx-auto p-8 bg-white rounded-xl shadow-xl text-center">
+                            <h1 class="text-3xl font-bold mb-4 link-red">My Orders</h1>
+                            <p class="text-gray-600 mb-6">You must be logged in to view your order history.</p>
+                            <button onclick="navigateTo('login')" class="btn btn-primary w-full">Go to Login</button>
+                        </div>`;
+				}
+
+				const orders = await fetchApi(`/orders/${loggedInUser.userid}`)
+
+				const ordersToDisplay = orders.map(order => ({
+					...order,
+					// Simulate order status rotation for demo
+					status: ['Delivered', 'Shipped', 'Processing'][Math.floor(Math.random() * 3)],
+				}));
+				const booksById = books.reduce((acc, book) => {
+					acc[book.book_id] = book;
+					return acc;
+				}, {});
+
+
+				return `
+                <div class="max-w-4xl mx-auto">
+                    <h1 class="text-4xl font-extrabold mb-8 text-center text-gray-800">My Orders History</h1>
+                    
+                    ${ordersToDisplay.length === 0
+						? `<div class="p-10 text-center bg-white rounded-xl shadow-lg">
+                                <p class="text-2xl font-semibold text-gray-600">You haven't placed any orders yet.</p>
+                                <p class="text-gray-500 mt-2">Start shopping now!</p>
+                                <button onclick="navigateTo('catalog')" class="btn btn-secondary mt-6">Browse Catalog</button>
+                           </div>`
+						: `<div class="space-y-6">
+                            ${ordersToDisplay.map(order => `
+                                <div class="bg-white rounded-xl shadow-lg p-5 border border-gray-100">
+                                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-3 border-b border-gray-200 mb-3">
+                                        <h2 class="text-xl font-bold text-gray-800">Order ID: <span class="font-mono text-gray-500">${`${order.id}`}</span></h2>
+                                        <span class="px-3 py-1 text-sm font-semibold rounded-full 
+                                            ${order.status === 'Delivered' ? 'bg-green-100 text-green-800' :
+								order.status === 'Shipped' ? 'bg-blue-100 text-blue-800' :
+									'bg-yellow-100 text-yellow-800'}">
+                                            ${order.status}
+                                        </span>
+                                    </div>
+                                    
+                                    ${order.items.map(item => `
+                                        <div class="flex items-center justify-between py-2 border-b border-dashed last:border-b-0">
+                                            <p class="font-medium">${booksById[item.bookid].title}</p>
+                                            <div class="text-right">
+                                                <p class="text-sm text-gray-600">Qty: ${item.quantity} @ ₹${item.price.toFixed(2)}</p>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+
+                                    <div class="pt-3 flex justify-between items-center">
+                                        <p class="text-sm text-gray-500">Ordered: ${order.orderdate.split('T')[0]}</p>
+                                        <p class="text-xl font-extrabold link-red">Total: ₹${parseFloat(order.total_amount).toFixed(2)}</p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>`
+					}
+                </div>
+            `;
+			}
+
+
+
+			/**
+	 * Renders the Analytics Page.
+	 */
+			async function renderAnalytics(isLoggedIn) {
+				if (!isLoggedIn) {
+					return `<div class="max-w-md mx-auto p-8 bg-white rounded-xl shadow-xl text-center">
+                    <h1 class="text-3xl font-bold mb-4 link-red">Analytics</h1>
+                    <p class="text-gray-600 mb-6">You must be logged in to view analytics.</p>
+                    <button onclick="navigateTo('login')" class="btn btn-primary w-full">Go to Login</button>
+                </div>`;
+				}
+
+				const { data: saleReports } = await fetchApi('/reports/book-sales');
+				const bookTitles = [];
+				const totalOrders = [];
+				const totalSold = [];
+				const totalRevenue = [];
+				saleReports.forEach(report => {
+					bookTitles.push(report.title);
+					totalOrders.push(report.total_orders);
+					totalSold.push(report.total_sold);
+					totalRevenue.push(report.total_revenue);
+				});
+
+
+
+				// Generate a canvas element
+				const canvasId = 'analyticsChart';
+				const chartHTML = `
+        <div class="max-w-5xl mx-auto p-6 bg-white rounded-xl shadow-lg">
+            <h1 class="text-4xl font-extrabold mb-6 text-center text-gray-800">Book Analytics</h1>
+            <canvas id="${canvasId}" width="800" height="400"></canvas>
+        </div>
+    `;
+
+				// Wait for the DOM to update
+				setTimeout(() => {
+					const ctx = document.getElementById(canvasId);
+
+					new Chart(ctx, {
+						type: 'bar',
+						data: {
+							labels: bookTitles,
+							datasets: [{
+								label: 'Total Units Sold',
+								data: totalSold,
+								backgroundColor: ['#f87171', '#60a5fa', '#facc15', '#4ade80']
+							}]
+						},
+						options: {
+							responsive: true,
+							scales: {
+								y: { beginAtZero: true }
+							},
+							plugins: {
+								tooltip: {
+									callbacks: {
+										// Custom tooltip to show more info
+										label: function (context) {
+											const index = context.dataIndex;
+											return [
+												`Sold: ${totalSold[index]}`,
+												`Orders: ${totalOrders[index]}`,
+												`Revenue: ${totalRevenue[index]}`
+											];
+										}
+									}
+								}
+							}
+						}
+					});
+				}, 10);
+
+				return chartHTML;
+			}
+
+
+
+			function renderAddBook(isLoggedIn) {
+				if (!isLoggedIn) {
+					return `
+			<div class="max-w-md mx-auto p-8 bg-white rounded-xl shadow-xl text-center">
+				<h1 class="text-2xl font-bold mb-4 text-red-600">Access Denied</h1>
+				<p class="text-gray-600 mb-4">You need to log in before adding a new book.</p>
+				<button onclick="navigateTo('login')" class="btn btn-primary w-full">Go to Login</button>
+			</div>
+		`;
+				}
+
+				return `
+		<div class="max-w-md mx-auto p-8 bg-white rounded-xl shadow-xl">
+			<h1 class="text-3xl font-bold mb-6 text-center text-blue">Add a New Book</h1>
+			
+			<form id="add-book-form">
+				<input type="text" name="book_name" placeholder="Book Name" required class="form-input" />
+				<input type="text" name="author" placeholder="Author" required class="form-input" />
+				<input type="url" name="image_link" placeholder="Image URL (e.g., https://example.com/book.jpg)" required class="form-input" />
+				<input type="number" name="quantity" placeholder="Quantity" min="1" required class="form-input" />
+				<input type="number" name="price" placeholder="Price (in ₹)" step="0.01" min="0" required class="form-input" />
+
+				<button type="submit" class="btn btn-secondary w-full mt-4">
+					Add Book
+				</button>
+			</form>
+
+			<p class="text-xs text-center text-gray-400 mt-3">
+				<span class="font-bold">NOTE:</span> Ensure all book details are correct before submitting.
+			</p>
+		</div>
+	`;
+			}
+
+
+
+			function renderUpdateBook() {
+
+				return `
+				<div class="max-w-md mx-auto p-8 bg-white rounded-xl shadow-xl">
+						<h1 class="text-3xl font-bold mb-6 text-center text-blue">Update Book</h1>
+						
+						<form id="update-book-form" data-book-id="${currentBook.book_id}">
+								<input type="text" name="book_name" placeholder="Book Name" value="${currentBook.title}" required class="form-input" />
+								<input type="text" name="author" placeholder="Author" value="${currentBook.author}" required class="form-input" />
+								<input type="url" name="image_link" placeholder="Image URL" value="${currentBook.image_link}" required class="form-input" />
+								<input type="number" name="quantity" placeholder="Quantity" value="${currentBook.stock_quantity}" min="1" required class="form-input" />
+								<input type="number" name="price" placeholder="Price (in ₹)" value="${currentBook.price}" step="0.01" min="0" required class="form-input" />
+
+								<button type="submit" class="btn btn-secondary w-full mt-4">
+										Update Book
+								</button>
+						</form>
+
+						<p class="text-xs text-center text-gray-400 mt-3">
+								<span class="font-bold">NOTE:</span> Ensure all book details are correct before submitting.
+						</p>
+				</div>
+				`;
+			}
+
+			// --- INITIALIZATION ---
+			window.onload = loadInitialState;
+
+
+			const API_BASE_URL = "http://localhost:3000/api";
+
+			async function fetchApi(url, method = "GET", data = null) {
+				url = API_BASE_URL + url;
+
+				const options = {
+					method,
+					headers: {
+						"Content-Type": "application/json",
+					},
+				};
+
+				if (data) {
+					options.body = JSON.stringify(data);
+				}
+
+				return new Promise(async (resolve, reject) => {
+					try {
+						const response = await fetch(url, options);
+
+						// Check HTTP status
+						if (!response.ok) {
+							const errorText = await response.text(); // get error body
+							return reject({
+								status: response.status,
+								message: errorText || response.statusText
+							});
+						}
+
+						const result = await response.json();
+						resolve(result);
+					} catch (error) {
+						reject({
+							status: null,
+							message: error.message || "Network or fetch error"
+						});
+					}
+				});
+			}
+
+
+
+	</script>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+
+</body>
+
+</html>
